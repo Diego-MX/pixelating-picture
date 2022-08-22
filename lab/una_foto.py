@@ -6,32 +6,35 @@ from skimage import io, color as clr
 
 
 
-def hex_size(xy_shape, diam): 
+def hex_size(a_shape, diam, indexing='ij'): 
     csc_60 = 1/np.sin(np.pi/3)
 
-    m_x = np.floor(xy_shape[0]/diam)
-    n_y = np.floor(xy_shape[1]/diam*csc_60 - (csc_60-1))
+    b_shape = a_shape if indexing == 'ij' else reversed(a_shape)    
+    
+    mm = np.floor((b_shape[0]/diam - 1))*csc_60 + 1
+    nn = np.floor( b_shape[1]/diam)
 
-    return m_x, n_y
+    the_size = (mm, nn) if indexing == 'ij' else (nn, mm)
+    return the_size
 
 
-def hex_centers_sp(mn_shape): 
+def hex_centers_sp(mn_shape, indexing='ij'): 
     # arrange unit circles starting at (1/2, 1/2) moving horizontal, 
     # then stacking vertical-wise. 
 
     sin_60 = np.sin(np.pi/3)
 
-    u_i = np.arange(mn_shape[0]) + 1/2
-    v_j = np.arange(mn_shape[1])*sin_60 + 1/2
+    u_i = np.arange(mn_shape[0])*sin_60 + 1/2
+    v_j = np.arange(mn_shape[1]) + 1/2
 
     odd_ones = np.mod(np.arange(mn_shape[1]), 2)
 
-    uu, vv = np.meshgrid(u_i, v_j, indexing='ij')
-    xx = (uu + odd_ones/2).flatten()
-    yy =  vv.flatten()
+    u_mat, v_mat = np.meshgrid(u_i, v_j, indexing='ij')
+    vv = (v_mat + odd_ones/2).flatten()
+    uu = u_mat.flatten()
 
-    xy_centers = np.column_stack((xx, yy))    
-    return xy_centers
+    uv_centers = np.column_stack((uu, vv))    
+    return uv_centers
     
 
 def pixels_2_PIXELS(a_shape, centers, radius, pxl_type='hex'): 
@@ -88,6 +91,7 @@ def gray_2_GRAY(gray_pic, pxl_2_PXL):
         GRAY_pic[which_k] = np.average(gray_pic[which_k]) 
 
     return GRAY_pic
+
 
 
 
