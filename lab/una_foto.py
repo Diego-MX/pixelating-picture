@@ -1,70 +1,67 @@
-
-from re import I
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage import io, color as clr
 
 
 
-def hex_size(a_shape, diam, indexing='ij'): 
-    csc_60 = 1/np.sin(np.pi/3)
+def get_frame_grid(a_shape, diam, indexing='ij', grid_type='hex'): 
+    if grid_type == 'hex': 
+        csc_60 = 1/np.sin(np.pi/3)
 
-    b_shape = a_shape if indexing == 'ij' else reversed(a_shape)    
-    
-    mm = np.floor((b_shape[0]/diam - 1))*csc_60 + 1
-    nn = np.floor( b_shape[1]/diam)
+        b_shape = a_shape if indexing == 'ij' else reversed(a_shape)    
+        
+        mm = int(np.floor((b_shape[0]/diam - 1)*csc_60)) + 1
+        nn = int(np.floor( b_shape[1]/diam))
 
-    the_size = (mm, nn) if indexing == 'ij' else (nn, mm)
-    return the_size
+        hex_shape = (mm, nn) if indexing == 'ij' else (nn, mm)
+        return hex_shape
 
 
-def hex_centers_sp(mn_shape, indexing='ij'): 
+def stack_hex_centers(h_shape, indexing='ij'): 
     # arrange unit circles starting at (1/2, 1/2) moving horizontal, 
     # then stacking vertical-wise. 
 
     sin_60 = np.sin(np.pi/3)
 
-    u_i = np.arange(mn_shape[0])*sin_60 + 1/2
-    v_j = np.arange(mn_shape[1]) + 1/2
+    h2_shape = h_shape if indexing == 'ij' else reversed(h_shape)
+    u_i = np.arange(h2_shape[0])*sin_60 + 1/2
+    v_j = np.arange(h2_shape[1]) + 1/2
 
-    odd_ones = np.mod(np.arange(mn_shape[1]), 2)
+    odd_ones = np.mod(np.arange(h2_shape[0]), 2)[:, None]
 
-    u_mat, v_mat = np.meshgrid(u_i, v_j, indexing='ij')
+    u_mat, v_mat = np.meshgrid(u_i, v_j, indexing=indexing)
+    uu =  u_mat.flatten()
     vv = (v_mat + odd_ones/2).flatten()
-    uu = u_mat.flatten()
 
     uv_centers = np.column_stack((uu, vv))    
     return uv_centers
     
 
-def pixels_2_PIXELS(a_shape, centers, radius, pxl_type='hex'): 
-    # X=(i, j) is assigned to C=(CX, CY) for which DIST(X, C) $lt R. 
+def label_grid(grid_values, centers, radius, pxl_type='hex'): 
 
-    # Fill in this MAP_MATRIX with the closest corresponding row number. 
-    # Non-assigned are kept as -1  (0 is reserved for 0-row).
-    pix_map  = -np.ones(a_shape)
+    grid_labels = -np.ones(grid_values).astype(int)
     
     if isinstance(radius, np.ndarray): 
         radius = np.average(radius)
 
     # Some considerations for when PXL_TYPE == 'HEX'
-    hex_radius = radius/np.sin(np.pi/3)
-    y_radius = hex_radius if pxl_type == 'hex' else radius
-    angles_6 = np.exp((np.arange(6))*np.pi*1j/3)
+    angles_6 = np.exp((np.arange(6)+1/2)*np.pi*1j/3)
     rays_6   = 2*radius*np.append(0+0j, angles_6)
 
     for cc in range(centers.shape[0]): 
-        cx, cy = centers[cc, :]
-        xx, yy = map(lambda X: X.flatten(), 
+        cx, cy = centers[cc, :]  
+
+        uu, vv = map(lambda X: X.flatten().astype(int), 
             np.meshgrid(
-                np.arange(np.floor(cx - radius),   np.ceil(cx + radius)), 
-                np.arange(np.floor(cy - y_radius), np.ceil(cy + y_radius)), 
+                np.arange(np.floor(cx - 2*radius), np.ceil(cx + 2*radius)), 
+                np.arange(np.floor(cy - 2*radius), np.ceil(cy + 2*radius)), 
                 indexing='ij'))
-        # Complexify
-        grid_points = (xx + yy*1j)
+
+        # Complexify, and reversed on purpose. 
+        grid_points = (uu + vv*1j)  
         a_center    = (cx + cy*1j)
 
-        pre_assign  = (xx < a_shape[0]) & (yy < a_shape[1])
+        pre_assign  = (uu < grid_values[0]) & (vv < grid_values[1])
 
         if  pxl_type == 'hex': 
             ctr_rivals   = a_center + rays_6
@@ -77,49 +74,56 @@ def pixels_2_PIXELS(a_shape, centers, radius, pxl_type='hex'):
             # Just within the circle of given RADIUS.  
 
         pxl_assign = pre_assign & post_assign
-        pix_map[xx[pxl_assign].astype(int), yy[pxl_assign].astype(int)] = cc        
+        grid_labels[uu[pxl_assign], vv[pxl_assign]] = cc        
 
-    return pix_map
+    row_rev = list(reversed(range(grid_values[0]))) 
+    col_rev = list(reversed(range(grid_values[1])))
+    pre_grid = grid_labels[row_rev, :]
+    return pre_grid
 
 
-def gray_2_GRAY(gray_pic, pxl_2_PXL): 
+def average_by_label(grid_coords, grid_labels): 
 
-    GRAY_pic = np.zeros(gray_pic.shape)
-    
-    for k in range(int(np.max(pxl_2_PXL))):
-        which_k = (pxl_2_PXL == k)
-        GRAY_pic[which_k] = np.average(gray_pic[which_k]) 
+    max_label  = np.max(grid_labels)
+    new_coords = np.zeros(grid_coords.shape)
+    new_values = np.zeros(max_label)
 
-    return GRAY_pic
+    for k in range(max_label):
+        which_k = (grid_labels == k)
+        
+        new_values[k] = np.average(grid_coords[which_k])  
+        new_coords[which_k] = new_values[k]
+
+    return new_coords, new_values
 
 
 
 
 if __name__ == '__main__': 
-    a_picture = io.imread("./data/majo-diego-crop.jpg")
+    a_picture = io.imread("./data/majo-268-360.jpg")
     gray_pic  = clr.rgb2gray(a_picture)
 
-    box_shape = np.array([29, 39])  # cms:  width, length. 
+    box_shape = np.array([39, 29])  # cms:  width, length. 
 
     pxl_ratio = a_picture.shape[:2]/box_shape
 
-    cork_dmtr = 1.2 #2.4 cms 
+    cork_dmtr =  2.4 #2.4 cms 
 
-    mn_shape  = hex_size(box_shape, cork_dmtr)
+    hx_shape  = get_frame_grid(box_shape, cork_dmtr, 'ij', 'hex')
 
     # Big Pixels Grid 
     PXL_centers = cork_dmtr*np.matmul(
-        hex_centers_sp(mn_shape), np.diag(pxl_ratio))
+        stack_hex_centers(hx_shape), np.diag(pxl_ratio))
     
-    pxl_2_PXL_circ = pixels_2_PIXELS(
+    pxl_2_PXL_circ = label_grid(
         gray_pic.shape, PXL_centers, cork_dmtr/2*pxl_ratio, 'circle')
 
-    pxl_2_PXL_hex = pixels_2_PIXELS(
+    pxl_2_PXL_hex = label_grid(
         gray_pic.shape, PXL_centers, cork_dmtr/2*pxl_ratio, 'hex')
 
-    GRAY_pic_circ = gray_2_GRAY(gray_pic, pxl_2_PXL_circ)
+    GRAY_pic_circ, values_cir = average_by_label(gray_pic, pxl_2_PXL_circ)
 
-    GRAY_pic_hex  = gray_2_GRAY(gray_pic, pxl_2_PXL_hex)
+    GRAY_pic_hex, values_hex  = average_by_label(gray_pic, pxl_2_PXL_hex)
 
     fig, axes = plt.subplots(2, 2)
     ax = axes.ravel()
